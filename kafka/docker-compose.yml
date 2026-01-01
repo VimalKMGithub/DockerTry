@@ -1,48 +1,49 @@
 services:
-  db-unleash-ent:
-    image: postgres:15
-    container_name: db-unleash-ent
-    environment:
-      POSTGRES_DB: unleash
-      POSTGRES_USER: unleash_user
-      POSTGRES_PASSWORD: unleash_password
-    volumes:
-      - unleash_ent_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U unleash_user -d unleash"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  unleash-ent:
-    image: unleashorg/unleash-enterprise:latest
-    container_name: unleash-ent
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka_server
     ports:
-      - "4242:4242"
+      - "9092:9092"
     environment:
-      DATABASE_HOST: db-unleash-ent
-      DATABASE_NAME: unleash
-      DATABASE_USERNAME: unleash_user
-      DATABASE_PASSWORD: unleash_password
-      DATABASE_SSL: "false"
+      # 1. SERVER ROLE SETTINGS (KRaft)
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
 
-      # Security Secrets
-      UNLEASH_SECRET: "ENTERPRISE_SECRET_123"
+      # 2. LISTENERS (Where the magic happens)
+      # We define two listeners: CONTROLLER (Internal) and CLIENT (External/Apps)
+      KAFKA_CFG_LISTENERS: CLIENT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: CLIENT://localhost:9092
 
-      # LOGGING
-      LOG_LEVEL: "info"
+      # 3. SECURITY MAPPING
+      # We map the 'CLIENT' listener to use SASL_PLAINTEXT (User/Pass)
+      # We keep 'CONTROLLER' as PLAINTEXT (Internal communication doesn't strictly need auth for local)
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,CLIENT:SASL_PLAINTEXT
 
-      # URL Configuration (Important for Enterprise features like SSO)
-      UNLEASH_URL: "http://localhost:4242"
+      # 4. AUTHENTICATION DETAILS
+      KAFKA_CFG_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
 
-      # LICENSE KEY (If you have a trial key, paste it here)
-      # UNLEASH_LICENSE: "your-license-key-here"
+      # 5. CREATE USERS (Comma separated)
+      # This creates a user "vimal" with password "pass123"
+      KAFKA_CLIENT_USERS: vimal,admin
+      KAFKA_CLIENT_PASSWORDS: pass123,adminpass
 
-    depends_on:
-      db-unleash-ent:
-        condition: service_healthy
-    restart: unless-stopped
+    volumes:
+      - kafka_data:/bitnami/kafka
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka_ui
+    ports:
+      - "8080:8080"
+    environment:
+      # 1. Enable the "Wizard" mode
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    volumes:
+      # 2. Persist the config file so your clusters are saved on restart
+      - kafka_ui_config:/etc/kafkaui
 
 volumes:
-  unleash_ent_db_data:
+  kafka_data:
+  kafka_ui_config: # <--- Don't forget to define the volume
